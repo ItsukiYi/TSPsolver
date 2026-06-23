@@ -1,0 +1,89 @@
+\documentclass[10pt]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{amsmath, amsfonts}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\setlist{noitemsep, topsep=2pt, parsep=0pt, partopsep=0pt} % Compact lists
+
+\title{\vspace{-1.5cm}Project Proposal: Delivery Route Optimization in Modern Logistics}
+\author{Pan Qiao}
+\date{\vspace{-0.5cm}\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Topic Selection}
+\textbf{Topic:} Delivery Route Optimization (Topic 5 from Appendix)\\
+\textbf{Motivation \& Background:} 
+With the explosive growth of e-commerce and food delivery industries (e.g., Meituan, Uber Eats, Amazon), the efficiency of "last-mile delivery" has become crucial for cost reduction. In modern logistics applications, couriers need to visit multiple locations and return to the starting point in a short time. This modern business scenario perfectly corresponds to the classic computer science problem: the Traveling Salesman Problem (TSP). This project aims to explore and analyze the performance and effectiveness of classic TSP approximation algorithms and heuristics on modern delivery network datasets of various scales.
+
+\section{Problem Formulation}
+\textbf{Problem:} The Metric Traveling Salesman Problem (TSP) \\
+\textbf{Input:} A complete undirected weighted graph $G = (V, E)$.
+\begin{itemize}
+    \item Vertex set $V = \{v_1, v_2, \dots, v_n\}$ represents the distribution center and customer locations, where $v_1$ is the starting point (depot).
+    \item Non-negative weights $c(u, v)$ on the edge set $E$ represent the actual distance or travel time between two locations. The graph satisfies the metric property (triangle inequality): $c(u, v) \le c(u, w) + c(w, v)$.
+\end{itemize}
+\textbf{Output:} A Hamiltonian Cycle, which is a tour that visits every vertex in the graph exactly once and finally returns to the starting point $v_1$.\\
+\textbf{Optimization Objective:} Minimize the total travel cost (distance or time) of the route:
+\[ \min \sum_{(u,v) \in Cycle} c(u, v) \]
+
+\section{Related Work}
+This project will review and compare foundational algorithmic approaches with modern Machine Learning paradigms:
+\begin{enumerate}
+    \item \textbf{[Representative Paper / Classic Baseline]} Christofides, N. (1976). \textit{Worst-case analysis of a new heuristic for the travelling salesman problem}. 
+    \begin{itemize}
+        \item \textbf{Summary:} Although historical, this is the milestone paper in graph algorithms providing the best known absolute approximation ratio (1.5$\times$) for Metric TSP. It is mathematically elegant and fully reproducible. Real-world delivery routing systems still heavily rely on such fast heuristic graph algorithms as their backend backbone. \textbf{We will focus on reproducing the core algorithm of this paper as our foundational baseline.}
+    \end{itemize}
+    \item \textbf{[Modern ML Extension]} Kool, W., van Hoof, H., \& Welling, M. (2019). \textit{Attention, learn to solve routing problems!} (ICLR).
+    \begin{itemize}
+        \item \textbf{Summary:} This highly cited paper represents the state-of-the-art paradigm in how modern AI approaches combinatorial routing problems, directly influencing actual food delivery platforms. It utilizes an Attention mechanism (similar to Transformers) trained via Reinforcement Learning to solve TSP and Vehicle Routing Problems (VRP) without hand-crafted heuristics. We will contrast our classical algorithms with this modern Deep Learning topology.
+    \end{itemize}
+\end{enumerate}
+
+\section{Algorithm and Technical Plan}
+\textbf{Core Algorithms:}\\
+We will implement and evaluate three algorithms with different complexities and accuracies:
+\begin{enumerate}
+    \item \textbf{Baseline:} Nearest Neighbor Greedy Algorithm (Time complexity $O(n^2)$).
+    \item \textbf{Core Reproduction (Christofides Algorithm):}
+    \begin{itemize}
+        \item Step 1: Find the Minimum Spanning Tree of the graph (Prim's or Kruskal's, $O(n^2)$).
+        \item Step 2: Find all vertices with odd degrees in the MST and perform Minimum-Weight Perfect Matching.
+        \item Step 3: Combine the matched edges with the MST edges to form an Eulerian graph and extract an Eulerian Circuit.
+        \item Step 4: Eliminate duplicates by skipping visited vertices (Shortcutting) and output the final route.
+    \end{itemize}
+    \item \textbf{Refinement Strategy:} 2-opt Local Search Algorithm.
+\end{enumerate}
+
+\noindent\textbf{Implementation \& Evaluation Setup:}
+\begin{itemize}
+    \item \textbf{Language \& Environment:} Python (using \texttt{NetworkX} for basic graph data structures and \texttt{Matplotlib} for route visualization).
+    \item \textbf{Proposed Datasets:}
+    \begin{enumerate}
+        \item \textbf{TSPLIB}: Classic TSP benchmark datasets intended to verify the correctness and approximation ratio of the algorithm.
+        \item \textbf{Synthetic Data}: Randomly generated 2D coordinate points (intended for simulating scales from $n=10$ to $n=2000$), planned for Scalability testing.
+    \end{enumerate}
+\end{itemize}
+
+\section{Project Scope and Expected Goals}
+\textbf{Expected Goals:}
+\begin{itemize}
+    \item Successfully implement the Nearest Neighbor baseline and Christofides algorithm.
+    \item \textbf{Runtime Analysis:} Plot charts to analyze the empirical runtime of the algorithms as $N$ increases, and verify against the theoretical complexity $O(n^3)$.
+    \item \textbf{Quality/Scalability:} Analyze the route length output by the Christofides algorithm, compare it with the optimal solution or baseline, and demonstrate the effectiveness of its 1.5 approximation ratio.
+\end{itemize}
+
+\textbf{Optional Extension:}
+\begin{itemize}
+    \item \textbf{Heuristic Optimization:} Run the 2-opt heuristic algorithm as a post-processing step on the output of the Christofides algorithm. Analyze how much route quality improvement can be achieved with a small amount of extra computation time.
+    \item \textbf{Real Map Application:} (If it permits) Call the OpenStreetMap (OSM) API to run the algorithm on actual city road network distance matrices instead of simple Euclidean spaces.
+\end{itemize}
+
+\section{Team Information}
+\begin{itemize}
+    \item \textbf{Pan Qiao (Individual Project):} As this is a single-person project, I will be solely responsible for all phases of the research and guarantee sufficient workload. This includes background literature review, mathematical understanding, algorithm implementation (Christofides and heuristic baselines), experimental evaluation, data visualization, and authoring the final presentation and report.
+\end{itemize}
+
+\end{document}

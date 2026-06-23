@@ -1,0 +1,244 @@
+IMPROVEMENT DESCRIPTIONS FOR FIGURE GENERATION
+
+Below are detailed descriptions of 5 improvement attempts on DualOpt.
+Each includes: motivation, algorithm steps, results, and visual suggestions.
+======================================================================
+
+IMPROVEMENT #1: HEATMAP-GUIDED REVISER
+======================================================================
+
+Motivation:
+DualOpt's neural reviser applies a uniform sliding window over the entire tour.
+Every window gets equal computation regardless of edge quality. DIFUSCO
+produces an edge probability heatmap. The idea is to use this heatmap to skip
+revision on confident windows and focus only on uncertain ones.
+
+Algorithm Flow:
+1. Run DIFUSCO on the TSP instance to get an n×n heatmap H (edge probabilities)
+2. Run C+2opt to get an initial tour
+3. For each reviser window (k=20 or k=10 nodes):
+   a. Look up DIFUSCO confidence H[i][j] for each edge in the window
+   b. Compute average confidence for the window
+   c. If avg_confidence > threshold (0.5): SKIP revision, keep original edges
+   d. Else: run the neural reviser on this window as normal
+4. Repeat for each reviser iteration
+5. Return refined tour
+
+Result:
+- TSP-50: Delta = +0.03% (zero effect)
+- TSP-100: Delta = +0.76% (slight degradation)
+- TSPLIB: +-0.00% (zero effect)
+- Reason: DIFUSCO heatmap confidence is poorly calibrated (only 45% of
+  high-confidence edges are actually optimal, even on training data).
+  You cannot skip windows based on a signal that's only 45% accurate.
+
+Visual Suggestion:
+Show a flowchart: DIFUSCO -> heatmap -> compute per-window confidence ->
+{confident? -> SKIP / uncertain? -> REVISE}. Show a TSP tour with some
+windows marked green (skipped) and some red (revised). Add a callout:
+"Result: 0.00% improvement. Heatmap confidence != edge optimality."
+
+======================================================================
+
+IMPROVEMENT #2: DIFUSCO -> DUALOPT PIPELINE (THE ONLY SUCCESSFUL ONE)
+======================================================================
+
+Motivation:
+Instead of trying to control DualOpt's internal behavior (which #1, #3, #4, #5
+all attempt and fail at), replace DualOpt's initial solution entirely with a
+DIFUSCO-generated tour. Then let DualOpt's revisers polish it.
+
+Algorithm Flow (Two Phases):
+Phase 1 - Diffusion Construction:
+  1. Start with random Bernoulli noise matrix (n×n)
+  2. 50-step categorical denoising via GNN -> edge heatmap H
+  3. Greedy merge: rank edges by H[i][j]/distance(i,j), build valid tour
+  4. Optional: 2-opt polish (1000 iterations) on initial tour
+Phase 2 - Neural Refinement:
+  1. Take DIFUSCO's initial tour
+  2. Apply DualOpt reviser k=50 (coarse, 25 iterations)
+  3. Apply DualOpt reviser k=20 (medium, 10 iterations)
+  4. Apply DualOpt reviser k=10 (fine, 5 iterations)
+  5. Return final optimized tour
+
+Result (TSP-50, 10 instances):
+  DIFUSCO raw (no 2-opt):  cost=6.696, gap=+13.67% vs GT
+  DIFUSCO + 2-opt:        cost=5.969, gap=+1.32%
+  DIFUSCO -> DualOpt:     cost=5.793, gap=-1.67%  <-- BEST, beats ground truth!
+  7 of 10 instances improved, 2 unchanged, 1 slightly worse.
+
+Per-Scale Analysis:
+  TSP-50 (DIFUSCO trained on TSP-50):   Delta = -1.67%  (SUCCESS)
+  TSP-100 (DIFUSCO trained on TSP-50):  Delta = -2.24%  (FAILS - size mismatch)
+  TSP-100 (DIFUSCO trained on TSP-100): Delta = +1.56%  (WORKS - matches original!)
+  TSP-200 (DIFUSCO trained on TSP-50):  Delta = -4.59%  (FAILS)
+  TSP-500 (DIFUSCO trained on TSP-50):  Delta = -4.43%  (FAILS)
+
+Key Insight: The pipeline works ONLY when DIFUSCO is trained at the target
+scale. Cross-scale transfer fails because DIFUSCO's heatmap quality degrades
+sharply on larger/smaller instances than it was trained on. The pipeline
+extracts 24% more improvement than 2-opt alone from the same heatmap.
+
+Visual Suggestion:
+A two-row pipeline diagram:
+Row 1 (Phase 1): [Random Noise] -> [GNN Denoising 50 steps] -> [Edge Heatmap]
+  -> [Greedy Merge] -> [Initial Tour]
+Row 2 (Phase 2): [Initial Tour] -> [Reviser k=50] -> [Reviser k=20]
+  -> [Reviser k=10] -> [Final Tour]
+Show a comparison table: DIFUSCO raw vs +2opt vs +DualOpt, with DualOpt as the
+clear winner. Add text: "Only improvement that works. Requires per-scale training."
+
+======================================================================
+
+IMPROVEMENT #3: ADAPTIVE WINDOW SIZING
+======================================================================
+
+Motivation:
+Use a fast 2-opt diagnostic pass (10 iterations, GPU-accelerated, ~0.001s) to
+detect which tour segments are "unstable" (edges that 2-opt can improve).
+Allocate more reviser iterations to unstable windows, skip stable ones.
+
+Algorithm Flow:
+1. Before each reviser pass, run 10-iteration 2-opt on current tour
+2. Compare before/after: which edges changed? -> binary "unstable" mask
+3. For each reviser window, count unstable edges within it
+4. Windows with many unstable edges: get 2x reviser iterations
+5. Windows with zero unstable edges: SKIP revision entirely
+
+Result:
+- TSP-50: Delta = +0.74% (degradation - made things WORSE)
+- TSPLIB: degraded by -2.6% to -4.5% (2-opt diagnostic found zero unstable
+  edges in the initial C+2opt tour, so ALL revision was skipped, and the
+  neural reviser never got a chance to improve)
+
+Why It Failed:
+2-opt (10 iterations) is a WEAK optimizer compared to the neural reviser.
+2-opt can only swap 2 edges; the reviser learns to reorder entire sub-tours.
+When 2-opt says "nothing to improve here", the reviser might still find a
+non-edge-swap rearrangement that 2-opt cannot detect.
+Core lesson: The diagnostic signal must be at least as expressive as the
+optimizer it's controlling.
+
+Visual Suggestion:
+Show a tour with windows. Some windows are marked with a magnifying glass
+(2-opt diagnostic checking). Most windows show "stable" (green checkmark).
+The reviser is shown being BLOCKED from these windows. Below: a comparison
+showing DualOpt WITHOUT the adaptive gate does BETTER (reviser can actually
+improve those "stable" windows).
+
+======================================================================
+
+IMPROVEMENT #4: FRAGMENT FREEZING VIA SOLVER CONSENSUS
+======================================================================
+
+Motivation:
+Run TWO independent solvers on the same instance: DIFUSCO (greedy merge from
+heatmap) and C+2opt. Find edges where BOTH solvers agree (intersection of
+their edge sets). These consensus edges are almost certainly optimal—lock them.
+Let DualOpt reviser optimize only the disputed edges.
+
+Algorithm Flow:
+1. DIFUSCO: heatmap -> greedy merge -> DIFUSCO tour -> edge set E_dif
+2. C+2opt: Christofides + 2opt -> C+2opt tour -> edge set E_c2opt
+3. INTERSECTION: E_frozen = E_dif ∩ E_c2opt  (edges both solvers chose)
+4. Run DualOpt reviser with these edges LOCKED (cannot be changed)
+5. Only non-frozen nodes can be rearranged by the neural reviser
+
+Result (TSP-50, 10 instances - detailed per-instance breakdown):
+  Instance 1: orig=5.545, frozen=5.259, delta=-5.16% (IMPROVED - BEST EVER!)
+  Instance 6: orig=5.346, frozen=5.277, delta=-1.30% (IMPROVED)
+  Instance 7: orig=6.084, frozen=5.868, delta=-3.55% (IMPROVED)
+  Instance 8: orig=5.364, frozen=5.260, delta=-1.94% (IMPROVED)
+  Instance 9: orig=5.726, frozen=6.610, delta=+15.43% (CATASTROPHIC FAILURE)
+  Instance 4: orig=6.480, frozen=7.054, delta=+8.87% (BAD)
+  Average: +1.51% (worse on average)
+  4/10 improved, 2 unchanged, 4 degraded
+  Average DIFUSCO-C+2opt agreement rate: 61.6%
+
+Why It's Interesting (Mixed Result):
+This is the only improvement besides #2 that shows POSITIVE per-instance
+results. Instance 1's -5.16% is the single best improvement by ANY method
+in our entire study. When the solver consensus happens to be CORRECT, freezing
+those edges helps the reviser focus productively. But when both solvers agree
+on WRONG edges (38% of cases), freezing locks in catastrophic errors.
+The method is unstable because it depends on DIFUSCO heatmap quality.
+
+Visual Suggestion:
+Show a bar chart with 10 bars (one per instance). Green bars = improved
+(instances 1,6,7,8), red bars = degraded (instances 2,3,4,9), gray = same
+(instances 5,10). Height = delta %. Annotate each bar with agreement rate.
+Title: "Fragment Freezing: Per-Instance Results"
+Bottom text: "4/10 improved. Solver consensus works when correct, fails
+catastrophically when wrong."
+
+======================================================================
+
+IMPROVEMENT #5: DESTROY-AND-REPAIR WITH HEATMAP TARGETING
+======================================================================
+
+Motivation:
+Inspired by DRHG (AAAI 2025). Instead of PASSIVELY skipping revision on
+confident edges (#1), ACTIVELY DESTROY uncertain edges and REPAIR the tour.
+This forces the optimizer to explore alternative connections.
+
+Algorithm Flow:
+1. Compute DIFUSCO edge confidence for every edge in the current tour
+2. DESTROY: Remove the K edges with LOWEST confidence (K=3,5,7)
+   -> Tour breaks into K connected path segments
+3. REPAIR: Reconnect the K segments using nearest-neighbor greedy
+4. POLISH: Apply 200 iterations of GPU-accelerated 2-opt
+5. REPEAT: 3 destroy-repair cycles, each time re-computing edge confidence
+6. Try multiple K values (3,5,7), keep the best repair for each cycle
+
+Initial Bug Discovery:
+First implementation showed Delta = -4.06% (5/10 improved). This turned out
+to be a SEGMENT-MERGING BUG in the destroy function that occasionally DROPPED
+NODES from the tour, producing artificially low (invalid) costs. After fixing
+the bug and adding a validity assertion (all n nodes present exactly once),
+the correct result is: Delta = +-0.00%.
+
+Corrected Result:
+- TSP-50: Delta = 0.00% (no effect at all, even with ENUMERATION of all
+  possible segment permutations, not just greedy)
+- Reason: DualOpt has already converged to a local optimum on TSP-50.
+  No amount of edge destruction and reconnection can escape it.
+  The DualOpt reviser on the full tour always returns to the same optimum.
+
+Scientific Value:
+The initial false positive (-4.06%) followed by correction to 0.00% is a
+valuable lesson in reproducibility hygiene: tour validity checks (asserting
+all nodes present exactly once) are ESSENTIAL when implementing destruction-
+based methods. The bug would have gone unnoticed without the assertion.
+
+Visual Suggestion:
+Three panels side by side:
+Panel 1: A tour with 5 edges highlighted in red = "destroy these edges"
+Panel 2: The tour broken into 5 disconnected segments, with arrows showing
+         greedy reconnection attempts
+Panel 3: The repaired tour after 2-opt polish
+Below: "Result: 0.00%. DualOpt is already optimal on TSP-50."
+
+Also show a small "bug alert" callout: "Initial false positive -4.06% was
+caused by a segment-merging bug that dropped nodes from the tour."
+
+======================================================================
+
+OVERALL SUMMARY (FOR A TABLE OR OVERVIEW FIGURE)
+======================================================================
+
+| # | Improvement         | TSP-50 Δ  | Improved/Total | Verdict    |
+|---|--------------------|-----------|----------------|------------|
+| 1 | Heatmap-Guided      | +0.03%    | 0/10           | Negative   |
+| 2 | DIFUSCO->DualOpt    | -1.67%    | 7/10           | POSITIVE   |
+| 3 | Adaptive Window     | +0.74%    | 0/10           | Negative   |
+| 4 | Fragment Freezing   | +1.51%    | 4/10           | Mixed      |
+| 5 | Destroy-and-Repair  | +0.00%    | 0/10           | Negative   |
+
+Core lesson: Changing the INPUT to a strong optimizer (#2, replace initial
+tour) is effective. Trying to CONTROL the optimizer's internal behavior
+(#1,#3,#4,#5, guide/skip/freeze/destroy) consistently fails.
+
+BEST single-instance result: Improvement #4, Instance 1: -5.16% cost reduction
+WORST single-instance result: Improvement #4, Instance 9: +15.43% degradation
+
+======================================================================

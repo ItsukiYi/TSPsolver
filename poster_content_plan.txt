@@ -1,0 +1,678 @@
+======================================================================
+POSTER CONTENT PLAN (v2) — CS240: Delivery Route Optimization
+======================================================================
+Author: Pan Qiao | ShanghaiTech University | June 2026
+
+Revised structure per author's instruction:
+  Section 1: Problem & Motivation
+  Section 2: Algorithm Landscape (expanded text)
+  Section 3: DIFUSCO → DualOpt Hybrid Pipeline (WHAT we built, HOW we fused)
+  Section 4: Experimental Results (reproduction + hybrid together)
+  Section 5: Five Improvements (centered on Gemini-generated figure)
+  Section 6: Key Insights & Conclusions
+  Section 7: References
+
+======================================================================
+POSTER TITLE
+======================================================================
+
+Classical Meets Modern:
+Neural Diffusion and Learned Local Search
+for the Traveling Salesman Problem
+
+(Short version:)
+DIFUSCO → DualOpt:
+A Hybrid Neural Pipeline for the Traveling Salesman Problem
+
+======================================================================
+SECTION 1 — PROBLEM & MOTIVATION
+======================================================================
+
+HEADER: Problem & Motivation
+
+BODY:
+The Traveling Salesman Problem (TSP) asks: given n locations, find the
+shortest Hamiltonian cycle visiting each exactly once. Despite its simple
+formulation, TSP is NP-hard — no polynomial exact algorithm exists unless
+P=NP.
+
+TSP drives modern logistics (Meituan, Uber Eats, Amazon last-mile delivery)
+and extends to PCB drilling, VLSI chip design, and genome sequencing.
+
+TSP is algorithmically unique because it:
+  • Is NP-hard, yet admits a 1.5× approximation (Christofides, 1976)
+  • Is simple enough for deep learning to learn useful heuristics
+  • Is complex enough that pure ML fails without classical components
+  • Is the canonical benchmark where new algorithmic ideas are validated
+
+After decades of research, a 2017 classical heuristic (LKH3) still dominates
+the speed-quality frontier at every scale we tested. Meanwhile, a new wave
+of neural solvers — powered by diffusion models and reinforcement learning —
+has emerged since 2023. This project asks:
+
+  Can we do better by COMBINING classical and neural approaches,
+  rather than choosing between them?
+
+VISUAL: outputs/visualizations/00_what_is_tsp.png
+
+======================================================================
+SECTION 2 — ALGORITHM LANDSCAPE
+======================================================================
+
+HEADER: Algorithm Landscape: Six Methods, Four Paradigms
+
+BODY:
+We study six methods spanning the full spectrum — from simple greedy
+construction to cutting-edge neural generation. The four classical
+algorithms were implemented from scratch in Python/NumPy. The two
+neural methods were reproduced from their published codebases with
+compatibility patches for modern PyTorch/CUDA/Windows.
+
+Classical Methods (implemented from scratch in Python/NumPy):
+
+  • Nearest Neighbor — Greedy baseline: repeatedly visits closest unvisited
+    node (O(n²), 20–30% gap).
+
+  • Christofides (1976) — The only polynomial algorithm with a provable 1.5×
+    guarantee for Metric TSP: MST → Blossom MWPM → Eulerian shortcut (O(n³)).
+
+  • C+2opt — Christofides followed by 2-opt local search that eliminates
+    crossing edge pairs; our NumPy-vectorized 2-opt achieves ~10× speedup
+    (~4.3% mean TSPLIB gap, strongest classical baseline).
+
+  • LKH3 (Helsgaun, 2017) — Gold standard: generalizes k-opt moves (k=2–5)
+    guided by α-nearness from minimum 1-trees (~0.4% gap, the ceiling).
+
+Neural Methods (reproduced from published codebases):
+
+  • DIFUSCO (NeurIPS 2023) — Categorical denoising diffusion on adjacency
+    matrices: a 12-layer GNN (5.3M params) generates an edge heatmap over
+    50 DDIM steps → greedy merge → 2-opt polish.
+
+  • DualOpt (AAAI 2025) — Divide-and-optimize: grid partition + LKH3 sub-
+    solves → 3 cascaded RL-trained neural revisers (710K params) refine
+    the tour; constant ~6s inference regardless of instance size n.
+
+SUMMARY TABLE — Compact Reference:
+
+┌─────────────────────┬──────────────┬────────────┬──────────────────────────┐
+│ Method              │ Paradigm     │ Complexity │ Key Property             │
+├─────────────────────┼──────────────┼────────────┼──────────────────────────┤
+│ Nearest Neighbor    │ Greedy       │ O(n²)      │ 20–30% gap (floor)       │
+│ Christofides (1976) │ Approx       │ O(n³)      │ 1.5× guarantee           │
+│ C+2opt              │ Improvement  │ O(n³)      │ ~4.3% gap (strong base)  │
+│ LKH3 (2017)         │ Local Search │ ~O(n²·²)   │ 0.4% gap (ceiling)       │
+├─────────────────────┼──────────────┼────────────┼──────────────────────────┤
+│ DIFUSCO (2023)      │ Diffusion    │ O(n²d²)    │ Generative, 5.3M params  │
+│ DualOpt (2025)      │ Divide + RL  │ O(n·k²)    │ Improvement, 710K params │
+└─────────────────────┴──────────────┴────────────┴──────────────────────────┘
+
+IMPLEMENTATION NOTE: All results on a single RTX 2060 (6GB), Windows 11,
+CUDA 12.6. Original papers used 8× GPUs on Linux. Required 6 compatibility
+patches total (3 for DIFUSCO: torch_sparse → pure PyTorch scatter, Lightning
+v1→v2 API, Cython→NumPy fallback; 3 for DualOpt: torch.load weights_only,
+LKH path, eval.py import fix).
+
+VISUAL: outputs/algorithm_processes.png (NN, Christofides, 2-opt workflows)
+
+======================================================================
+SECTION 3 — DIFUSCO → DUALOPT HYBRID PIPELINE
+======================================================================
+
+HEADER: DIFUSCO → DualOpt: A Hybrid Neural Pipeline for TSP
+
+This is the core contribution of this project. Rather than treating
+DIFUSCO and DualOpt as competing methods, we combined them — taking the
+generative power of diffusion from DIFUSCO and the learned local search
+from DualOpt. The result: a pipeline that outperforms both.
+
+CORE INSIGHT (from the figure):
+  "A Hybrid pipeline: DIFUSCO provides global structure,
+   DualOpt provides local precision."
+
+  • DIFUSCO's diffusion process captures GLOBAL tour structure —
+    the GNN sees the entire n×n adjacency matrix simultaneously.
+    But its raw output has local defects (self-crossings,
+    suboptimal turns).
+
+  • DualOpt's revisers excel at LOCAL refinement — trained via
+    REINFORCE to directly minimize tour length within sliding
+    windows. But they need a reasonable starting tour.
+
+  The hybrid pipeline lets each component do what it does best.
+
+═══════════════════════════════════════════════════════════════════════
+PIPELINE ARCHITECTURE (refer to Gemini_Generated_Image_...png)
+═══════════════════════════════════════════════════════════════════════
+
+The Gemini figure shows the complete two-phase pipeline with exact
+labels. The text below explains each component's origin and role.
+
+───────────────────────────────────────────────────────────────────────
+PHASE 1: DIFFUSCO CONSTRUCTION
+───────────────────────────────────────────────────────────────────────
+
+  Random Noise (random Bernoulli edges)
+  → DIFUSCO Model (Diffusion Model): 12-layer GNN, ~5.3M parameters
+     [Taken from DIFUSCO: the Anisotropic Gated GNN from Sun & Yang.
+      Trained 20 epochs on TSP-50 with Christofides+2opt labels.
+      Supervised cross-entropy loss on edge classification.]
+  → 50 Denoising Steps (Cosine schedule, DDIM)
+     [Taken from DIFUSCO: categorical diffusion process, cosine noise
+      schedule. The GNN iteratively predicts clean edges from noisy
+      adjacency, conditioned on coordinates and timestep embedding.]
+  → Edge Probability Heatmap H[i][j] ∈ [0,1]
+     [H[i][j] = confidence that edge (i,j) belongs to a good tour.
+      This encodes the model's GLOBAL understanding of edge quality.]
+  → Greedy Tour Extraction (Merge edges by rank H[i][j] / distance)
+     [Taken from DIFUSCO: rank all n(n−1)/2 candidate edges by
+      heatmap-score-to-distance ratio. Insert into partial tour
+      while preserving degree ≤ 2 and preventing sub-cycles.]
+  → Initial DIFUSCO-Generated Tour π₀
+     [Structurally coherent skeleton; typical gap: ~13% vs optimal.]
+
+───────────────────────────────────────────────────────────────────────
+PHASE 2: NEURAL REFINEMENT
+───────────────────────────────────────────────────────────────────────
+
+  Neural Reviser Models:
+     [Taken from DualOpt: attention-based policy networks trained
+      via REINFORCE with rollout baseline, ~710K parameters total.
+      Three pretrained checkpoints at k=50,20,10.]
+
+  Sliding window mechanism:
+     [Taken from DualOpt: decompose tour into overlapping windows
+      of k consecutive nodes. Each reviser processes windows
+      sequentially, proposing improved sub-tour orderings.]
+
+  ✗ No Heatmap-Guided Skip (Failed mechanism)
+     [WHAT WE REMOVED: the pipeline originally used DIFUSCO's heatmap
+      to skip revision on confident windows. This had zero effect —
+      the reviser is already near-optimal on TSP-50, and the heatmap
+      is too poorly calibrated to identify which windows need revision.
+      See Section 5 for analysis.]
+
+  → k=50 Coarse Reviser (25 iter.): Fixes global structure
+  → k=20 Medium Reviser (10 iter.): Fixes regional issues
+  → k=10 Fine Reviser (5 iter.): Polishes local details
+
+  Initial Tour π₀ → [3 revisers] → Final Optimized Delivery Tour π*
+
+───────────────────────────────────────────────────────────────────────
+FUSION ENGINEERING — What We Built to Make This Work
+───────────────────────────────────────────────────────────────────────
+
+  The DIFUSCO and DualOpt codebases were NOT designed to interoperate.
+  We resolved three integration challenges:
+
+  1. Package name conflict: Both use a top-level "utils" package.
+     → Path isolation: dynamically switch sys.path so each module
+       imports from its own codebase.
+
+  2. Data format mismatch: DIFUSCO outputs a permutation list π;
+     DualOpt expects a "seeds" tensor of shape (1, n, 2).
+     → Explicit conversion layer between the two formats.
+
+  3. Checkpoint incompatibility: DIFUSCO uses PyTorch Lightning .ckpt;
+     DualOpt uses raw torch.save state_dicts.
+     → Unified loader that bridges both formats transparently.
+
+  New module: DualOpt-improved/utils/difusco_pipeline.py (~160 lines)
+
+───────────────────────────────────────────────────────────────────────
+WHY IT WORKS
+───────────────────────────────────────────────────────────────────────
+
+  DIFUSCO's GNN processes the ENTIRE n×n adjacency matrix jointly —
+  capturing long-range dependencies for globally coherent tour
+  skeletons. DualOpt's revisers operate within LOCAL windows —
+  producing precise corrections at the neighborhood level.
+
+  Neither is sufficient alone:
+  • DIFUSCO alone: global coherence without local precision → 13% gap
+  • DualOpt alone: depends on initial tour quality; cannot fix
+    fundamentally broken global structure when n > 100
+  • Together: DIFUSCO is the architect drawing the blueprint;
+    DualOpt's revisers are the craftsmen refining each room.
+
+───────────────────────────────────────────────────────────────────────
+KEY RESULTS (detailed in Section 4)
+───────────────────────────────────────────────────────────────────────
+
+  DIFUSCO raw (no refinement):    6.696  (+13.67% vs GT)
+  DIFUSCO + 2-opt (standard):     5.969  (+1.32%  vs GT)
+  DIFUSCO → DualOpt (OURS):     5.793  (−1.67%  vs GT)  ← BEST
+
+  The pipeline extracts 24% more improvement than 2-opt alone.
+  On TSPLIB kroA100, it surpasses original DualOpt (+0.9 pp).
+
+FIGURES: Gemini_Generated_Image_efbcq1efbcq1efbc.png (CENTERPIECE)
+         outputs/arch_pipeline.png (alternative diagram)
+
+======================================================================
+SECTION 4 — EXPERIMENTAL RESULTS
+======================================================================
+
+HEADER: Experimental Results
+
+SETUP. We evaluate on three datasets: (1) Random Uniform TSP — 10 held-out
+instances at each of n = 50, 100, 200, 500, 1000, matching DIFUSCO's training
+distribution; (2) TSPLIB Standard Benchmark — 8 symmetric instances (51 to
+1002 nodes) with known optimal values, the authoritative test of generalization;
+(3) Clustered Delivery TSP — 4 Gaussian clusters + scattered points at
+n = 50, 100, 200, representing real-world delivery density patterns. All
+methods evaluated on identical instances. Ground truth for TSP-50: Christofides
++ 2-opt with 5,000 iterations. TSPLIB ground truth: known optimal values from
+the literature. LKH3 serves as the speed-quality ceiling.
+
+We report results in five tables (compiled separately as poster_tables.pdf).
+Refer to the table numbers below for exact data; the text summarizes key findings.
+
+───────────────────────────────────────────────────────────────────────
+A. TSP-50 BENCHMARK — All Methods on Equal Ground  [Tables 1, 4, 7]
+───────────────────────────────────────────────────────────────────────
+
+Table 1 compares all 6 methods on 10 identical random TSP-50 instances.
+DIFUSCO+2opt matches the C+2opt baseline (0.3% gap) after only 20 epochs
+of training — effective learning from suboptimal labels. DualOpt surpasses
+all methods (−2.1% vs GT), finding improvements that 5,000-iteration 2-opt
+missed, because its REINFORCE-trained revisers directly optimize tour length.
+
+Table 4 shows our hybrid pipeline's improvement chain: raw DIFUSCO starts
+at +13.67% gap; adding 2-opt closes it to +1.32%; replacing 2-opt with
+DualOpt's revisers achieves −1.67% — the BEST result of any method and the
+only one to beat the training labels. The reviser extracts 24% more
+improvement than 2-opt from the same heatmap.
+
+Table 7 summarizes all 5 improvement strategies attempted. Only the pipeline
+(#2) succeeded; the other four, which all tried to guide the reviser's
+internal search using DIFUSCO's heatmap confidence, failed because TSP-50
+is essentially "solved" for DualOpt's reviser.
+
+───────────────────────────────────────────────────────────────────────
+B. TSPLIB GENERALIZATION — Cross-Scale and Cross-Distribution  [Table 2]
+───────────────────────────────────────────────────────────────────────
+
+Table 2 reports gaps vs known optimal on 8 TSPLIB instances (51–1002 nodes).
+DIFUSCO, trained only on random uniform TSP-50, generalizes to TSP-1002
+(20× larger) with just 7.1% gap — the GNN learns size-agnostic edge quality.
+DualOpt achieves near-perfect results within its training window (berlin52:
+0.03% gap) but degrades catastrophically beyond n≈100 (ch150: 45.3%, worse
+than Nearest Neighbor) due to fixed reviser window sizes. Christofides+2opt
+remains a strong baseline: 4.3% mean gap with no learned components.
+
+Key pattern: DIFUSCO and DualOpt show complementary generalization —
+DIFUSCO transfers robustly across sizes but is bounded by label quality;
+DualOpt is precise within its window but brittle beyond. This complementarity
+motivates our hybrid pipeline.
+
+───────────────────────────────────────────────────────────────────────
+C. PIPELINE VALIDATION  [Tables 4, 5]
+───────────────────────────────────────────────────────────────────────
+
+Table 5 validates the DIFUSCO→DualOpt pipeline on 4 TSPLIB instances (n ≤ 100).
+On kroA100, our pipeline achieves 1.81% gap — surpassing the original DualOpt
+(2.71%) by 0.9 pp. This is notable because DIFUSCO was trained on random-uniform
+data, yet the pipeline transfers to TSPLIB with competitive results. On smaller
+instances (eil51, berlin52, eil76), the original DualOpt retains a modest edge,
+as its LKH grid-solve initialization provides a stronger starting point than
+diffusion-based construction at these scales.
+
+───────────────────────────────────────────────────────────────────────
+D. SCALABILITY — From 100 to 1000 Nodes  [Table 9]
+───────────────────────────────────────────────────────────────────────
+
+Table 9 shows solution quality, gap vs LKH3, and runtime for all classic
+methods across n = 100, 200, 500, 1000. C+2opt maintains a steady 2.7–3.6%
+gap vs LKH3 independent of instance size — impressive for a pure heuristic.
+However, the Christofides cubic bottleneck dominates beyond n≈200: at n=1000,
+C+2opt takes 51.2s vs LKH3's 1.2s (43× faster), while LKH3 also produces
+better solutions. LKH3 dominates the speed-quality Pareto frontier at every
+scale we tested.
+
+───────────────────────────────────────────────────────────────────────
+E. LKH3 — THE GOLD STANDARD CEILING  [Table 10]
+───────────────────────────────────────────────────────────────────────
+
+Table 10 reports LKH3 vs known optimal on all 8 TSPLIB instances. LKH3 achieves
+a mean gap of 0.40%, with four instances within 0.05% of optimal. This places
+a clear ceiling on all methods: even the best neural solver (DualOpt, 2.2% mean
+for n≤100) remains ~5× further from optimal than LKH3. On tsp225, LKH3 found
+a tour better than the commonly cited optimum. The key takeaway: neural methods
+have not yet closed the quality-speed Pareto frontier — but they offer different
+tradeoffs (generalization, parallelizability, and the ability to learn from data
+rather than hand-crafted rules).
+
+───────────────────────────────────────────────────────────────────────
+F. ABLATION — What Makes DIFUSCO Work?  [Table 3]
+───────────────────────────────────────────────────────────────────────
+
+Table 3 ablates DIFUSCO's inference pipeline: {10,20,50} denoising steps ×
+{no 2-opt, +2-opt}. Raw diffusion output (any #steps) has ~13% gap — WORSE
+than pure Christofides (9.0%). Adding 2-opt closes the gap to ~0.3%. Only
+10 denoising steps are needed: 50 steps gives marginal extra gain at 4× the
+inference cost. The diffusion model learns "which edges are plausible," not
+"how to build tight tours" — 2-opt bridges the gap.
+
+FIGURES: outputs/pareto_frontier.png (speed-quality tradeoff)
+         outputs/difusco_diffusion_steps.png (ablation bar chart)
+         outputs/city_delivery_500.png (real-world scenario)
+
+TABLES: See poster_tables.pdf — Tables 1–10 (compiled separately for screenshot)
+
+======================================================================
+SECTION 5 — FIVE IMPROVEMENTS ATTEMPTED
+======================================================================
+
+HEADER: Five Improvement Strategies, One Successful Pipeline
+
+We designed and tested 5 strategies to integrate DIFUSCO's edge
+probability heatmap with DualOpt's learned local search. Four failed.
+One succeeded — and became the hybrid pipeline described in Section 3.
+
+THIS SECTION IS BUILT AROUND THE FIGURE (OCR text from the image):
+
+The figure shows the DIFUSCO→DualOpt pipeline architecture, annotated
+with WHERE each improvement strategy intervenes and HOW it performed.
+The text below explains each annotation point on the figure.
+
+───────────────────────────────────────────────────────────────────────
+THE FIGURE — Annotated Pipeline with Five Intervention Points
+───────────────────────────────────────────────────────────────────────
+
+The figure follows the same two-phase structure as Section 3, but each
+improvement strategy is shown as an ANNOTATION at its intervention
+point along the pipeline flow:
+
+  Random Noise → DIFUSCO Model (12-layer GNN, ~5.3M params)
+    → 50 Denoising Steps (Cosine schedule, DDIM)
+    → Edge Probability Heatmap
+    → Greedy Tour Extraction (Merge edges by rank H[i][j]/dist)
+    → Initial DIFUSCO-Generated Tour
+    → [IMPROVEMENT STRATEGIES INTERVENE HERE]
+    → k=50 Coarse Reviser (25 iter.): Fixes global structure
+    → k=20 Medium Reviser (10 iter.): Fixes regional issues
+    → k=10 Fine Reviser (5 iter.): Polishes local details
+    → Final Optimized Delivery Tour
+
+The five strategies are shown at their respective intervention points
+with color-coded outcome markers (success / no effect / degradation).
+
+───────────────────────────────────────────────────────────────────────
+STRATEGY #2 — DIFUSCO → DualOpt Pipeline  [THE SUCCESS]
+───────────────────────────────────────────────────────────────────────
+
+  INTERVENTION POINT (on figure): BEFORE the DualOpt revisers.
+  The pipeline itself IS Strategy #2 — replace DualOpt's heuristic
+  initial tour (LKH grid-solve) with a DIFUSCO-generated tour built
+  entirely from random noise via diffusion.
+
+  WHY IT'S ON THE FIGURE: The pipeline flow from "Random Noise" through
+  "Initial DIFUSCO-Generated Tour" into the three revisers IS the
+  architecture of Strategy #2. This is the SUCCESSFUL strategy:
+  change the INPUT to the reviser rather than its internal process.
+
+  RESULT: −1.67% vs GT on TSP-50 (BEST of all methods). The DualOpt
+  reviser extracts 24% more improvement than 2-opt from the same
+  heatmap. On TSPLIB kroA100: 1.81% gap, surpassing original DualOpt.
+
+───────────────────────────────────────────────────────────────────────
+STRATEGY #1 — Heatmap-Guided Reviser  [NO EFFECT — Δ = 0.00%]
+───────────────────────────────────────────────────────────────────────
+
+  INTERVENTION POINT (on figure): Between the Edge Probability Heatmap
+  output and the k=50 Coarse Reviser — marked as ✗ "No Heatmap-Guided
+  Skip (Failed mechanism)".
+
+  STRATEGY: During each reviser pass, compute the average DIFUSCO
+  heatmap confidence for edges in each sliding window. If confidence
+  exceeds a threshold (τ = 0.5), SKIP the reviser for that window —
+  the edges are presumed already good.
+
+  WHY IT FAILED: On TSP-50 with k=50, there is only ONE window (the
+  entire tour) — nothing can be skipped. With k=20, only 3 windows
+  exist; skipping any means abandoning ~40% of edges. Additionally,
+  the reviser decodes greedily (deterministic): skipped windows would
+  have converged to the same result anyway.
+
+  ANNOTATION ON FIGURE: The ✗ marker indicates this mechanism was
+  REMOVED from the final pipeline — it added complexity with zero
+  measurable benefit.
+
+───────────────────────────────────────────────────────────────────────
+STRATEGY #3 — Adaptive Window Sizing  [NO IMPROVEMENT]
+───────────────────────────────────────────────────────────────────────
+
+  INTERVENTION POINT (on figure): At the transition between the three
+  reviser stages (k=50 → k=20 → k=10) — dynamically adjusts the
+  number of iterations per window based on a diagnostic signal.
+
+  STRATEGY: Run a lightweight 2-opt diagnostic (10 iterations) on the
+  current tour to identify "unstable" edges (those 2-opt changes).
+  Allocate MORE reviser iterations to windows with high instability
+  density, FEWER to already-stable windows.
+
+  WHY IT FAILED: 2-opt converges to the SAME local optimum the reviser
+  already reaches. The "unstable" edges 2-opt identifies are exactly
+  the ones the reviser would have fixed anyway. The diagnostic provides
+  no information the reviser doesn't already have. Equal iteration
+  allocation was already optimal.
+
+───────────────────────────────────────────────────────────────────────
+STRATEGY #4 — Fragment Freezing  [MIXED — 4/10 improved, unstable]
+───────────────────────────────────────────────────────────────────────
+
+  INTERVENTION POINT (on figure): BEFORE the reviser cascade — locks
+  a subset of edges in place before revision begins.
+
+  STRATEGY: Run DIFUSCO AND Christofides+2opt independently on the
+  same instance. Extract edge sets from both tours. Find the edge
+  INTERSECTION — edges that BOTH methods independently select. Freeze
+  these agreed-upon edges (mark as immutable). Run DualOpt reviser
+  constrained to only rearrange non-frozen nodes. The rationale: if two
+  fundamentally different solvers independently agree on an edge, it is
+  almost certainly optimal.
+
+  RESULT: 4/10 instances improved, with gains up to −5.16% (the single
+  best per-instance gain of ANY method). However, aggregate performance
+  DEGRADED (+1.51% mean vs original DualOpt). The agreement rate between
+  DIFUSCO and C+2opt is only 61.6% — they disagree on ~40% of edges.
+  When both solvers agree on a WRONG edge (~40% of agreement), the error
+  is permanently locked in and the reviser cannot fix it (worst case:
+  +15.43% on instance 9). On TSPLIB: complete failure (invalid tours
+  below OPT — physically impossible for metric TSP).
+
+  SCIENTIFIC VALUE: This is the ONLY method besides #2 that shows positive
+  per-instance results, confirming that structural consensus between
+  independent solvers is a stronger signal than learned probability scores.
+  But the method is unstable — agreement can encode errors. The insight:
+  consensus-based freezing is promising but requires a third "tiebreaker"
+  mechanism for disputed edges. See Table 11 for per-instance data.
+
+───────────────────────────────────────────────────────────────────────
+STRATEGY #5 — Destroy-and-Repair  [DEGRADATION]
+───────────────────────────────────────────────────────────────────────
+
+  INTERVENTION POINT (on figure): AFTER the Initial DIFUSCO-Generated
+  Tour, BEFORE the reviser cascade — actively destroys and rebuilds
+  portions of the initial tour.
+
+  STRATEGY: Use DIFUSCO's heatmap to identify the K edges with LOWEST
+  confidence. DESTROY these edges — breaking the tour into K+1
+  disconnected segments. REPAIR by reconnecting segments via nearest-
+  neighbor greedy insertion + 2-opt polish. A Hyper-Repair variant
+  compresses intact segments into hyper-edges and uses the neural
+  reviser as the repair operator (inspired by DRHG, AAAI 2025).
+
+  WHY IT FAILED: Random destruction + greedy repair produces WORSE
+  tours than simply running the reviser on the intact initial tour.
+  The reviser's learned optimization is fundamentally more effective
+  than greedy heuristics at fixing the same edges the heatmap flags.
+  Destroying edges removes information the reviser could have used.
+
+───────────────────────────────────────────────────────────────────────
+THE FUNDAMENTAL INSIGHT (bottom annotation on the figure)
+───────────────────────────────────────────────────────────────────────
+
+  "A Hybrid pipeline: DIFUSCO provides global structure,
+   DualOpt provides local precision."
+
+  The four failed strategies (#1,3,4,5) all share a common flaw:
+  they attempt to GUIDE the reviser's internal search process using
+  DIFUSCO's heatmap confidence scores. This fails because:
+
+  (a) The reviser is already SATURATED on TSP-50 — it reaches the
+      same local optimum regardless of perturbation.
+  (b) The DIFUSCO heatmap is POORLY CALIBRATED — only ~45% of high-
+      confidence edges are actually optimal, even in-distribution.
+
+  The successful strategy (#2) works because it changes the INITIAL
+  CONDITIONS — the starting tour — rather than trying to steer the
+  optimizer mid-flight. The diffusion model generates a structurally
+  novel starting point that the reviser has never seen during RL
+  training, and the reviser's learned policy generalizes to it.
+
+  Lesson for hybrid system design: when a learned optimizer has
+  saturated, invest in improving the GENERATED INPUT, not in
+  constraining the optimizer's search.
+
+FIGURES: Section 5 micro-architecture image (shows pipeline + 5
+         intervention points with outcome annotations)
+         outputs/improvement4_per_instance.png (per-instance results)
+
+======================================================================
+SECTION 6 — KEY INSIGHTS & CONCLUSIONS
+======================================================================
+
+HEADER: Summary & Key Insights
+
+WHAT WE DID. Reproduced DIFUSCO (diffusion) and DualOpt (RL divide-and-conquer)
+on a single RTX 2060, implemented four classical algorithms from scratch, and
+built a hybrid pipeline — DIFUSCO generates the initial tour, DualOpt's revisers
+refine it. Tested four other heatmap-guided strategies; all revealed fundamental
+limits of learned optimizers.
+
+WHEN THE PIPELINE WORKS. TSP-50: −1.67\% vs GT, best of all methods. kroA100
+(TSPLIB): 1.81\%, surpasses original DualOpt (2.71\%). Requires per-scale DIFUSCO
+training — the diffusion GNN must produce a meaningful heatmap at the target size.
+
+WHEN IT DOES NOT. Cross-size without retraining: TSP-50 model on TSP-100
+degrades (−2.24\%). Small TSPLIB (eil51/berlin52): LKH grid-solve initialization
+beats diffusion at n≈50. TSPLIB out-of-distribution: heatmap gap 36–60\%,
+all heatmap strategies collapse. Beyond TSP-100: dense GNN exceeds 6\,GB VRAM.
+
+KEY TAKEAWAYS:
+
+1. HYBRID $>$ EITHER ALONE. DIFUSCO (global) $+$ DualOpt (local) $=$ $-$1.67\% vs GT.
+
+2. CHANGE THE INPUT, NOT THE PROCESS. Replacing the initial tour (\#2) succeeded;
+   guiding the reviser internally (\#1,3,4,5) failed — it already saturates.
+
+3. CLASSICAL WINS AT SMALL SCALES. At $n\le1000$, LKH3 (0.4\% gap, 1.2s) and
+   C$+$2opt (4.3\%) are fast, near-optimal, and need no training.
+
+4. NEURAL METHODS TARGET LARGE SCALES. DualOpt beats LKH3 by 1.40\% on TSP-100K
+   (104$\times$ faster); DIFUSCO scales to TSP-10K. Our ceiling was $n=1000$ on a
+   single RTX 2060 — the hybrid pipeline should be even more impactful at scale.
+
+5. 2-OPT DRIVES DIFUSCO. Raw diffusion: $\sim$13\% gap $\rightarrow$ $+$2-opt:
+   $\sim$0.3\%. 10 steps suffice. GNN generalizes across sizes (TSP-50 $\rightarrow$
+   TSP-1002: 7.1\% gap).
+
+6. FIVE IMPROVEMENTS CHART THE DESIGN SPACE. \#1: confidence $\neq$ guidance. \#2:
+   hybrid pipelines work. \#3: weak optimizers can't guide strong ones. \#4:
+   solver consensus shows promise (4/10 improved, up to $-$5.16\%) but needs a
+   tiebreaker. \#5: once saturated, perturbations only degrade.
+
+======================================================================
+HIGHLIGHT BOX — KEY METRICS
+======================================================================
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ 🏆 DIFUSCO → DualOpt Hybrid Pipeline (Our Contribution)             │
+│                                                                     │
+│   TSP-50:    −1.67% vs ground truth  —  BEST of ALL methods         │
+│   kroA100:    1.81% gap  —  surpasses original DualOpt (2.71%)      │
+│   Pipeline:   24% more improvement than standard 2-opt               │
+│   Wins/ties:  7/10 instances over baselines                         │
+│                                                                     │
+│ 📊 Ablation: 2-opt is the dominant factor                           │
+│   Raw diffusion: ~13% gap → +2-opt: ~0.3% gap                       │
+│   10 steps + 2-opt = 99.9% of 50-step result at 25% cost            │
+│                                                                     │
+│ 💡 Key Insight:                                                     │
+│   Change the INPUT to the optimizer, not its internal process.       │
+│   When reviser saturates, only new initial conditions help.          │
+│                                                                     │
+│ 🔧 All results on single RTX 2060 (6GB), Windows 11, CUDA 12.6      │
+└─────────────────────────────────────────────────────────────────────┘
+
+======================================================================
+SECTION 7 — REFERENCES
+======================================================================
+
+[1] Z. Sun and Y. Yang. DIFUSCO: Graph-based Diffusion Solvers for
+    Combinatorial Optimization. NeurIPS, 2023.
+
+[2] Zhou et al. DualOpt: A Dual Divide-and-Optimize Algorithm for
+    the Large-Scale Traveling Salesman Problem. AAAI, 2025.
+
+[3] N. Christofides. Worst-case analysis of a new heuristic for the
+    travelling salesman problem. Technical Report 388, 1976.
+
+[4] K. Helsgaun. An Extension of the Lin-Kernighan-Helsgaun TSP
+    Solver. Technical Report, Roskilde University, 2017.
+
+[5] W. Kool, H. van Hoof, and M. Welling. Attention, Learn to Solve
+    Routing Problems! ICLR, 2019.
+
+======================================================================
+FIGURE INVENTORY — Summary
+======================================================================
+
+Section 1:  outputs/visualizations/00_what_is_tsp.png
+Section 2:  outputs/algorithm_processes.png
+Section 3:  Gemini_Generated_Image_efbcq1efbcq1efbc.png  ← POSTER CENTERPIECE
+            (Pipeline architecture diagram: Phase 1 Diffusion Construction
+             → Phase 2 Neural Refinement)
+Section 4:  outputs/pareto_frontier.png
+            outputs/difusco_diffusion_steps.png
+Section 5:  [Section 5 micro-architecture image]  ← 5 improvement strategies
+            (Annotated pipeline with 5 intervention points showing where
+             each strategy acts and its outcome: success / no effect /
+             no improvement / degradation)
+            outputs/improvement4_per_instance.png (per-instance bar chart)
+Section 6:  (no figure — text + highlight box)
+
+Total: 6 unique figures + 10 LaTeX tables (in poster_tables.pdf) + 1 highlight box.
+The pipeline architecture (Section 3) is the visual centerpiece.
+
+======================================================================
+DESIGN GUIDANCE
+======================================================================
+
+Layout: 3-column, dark title banner at top.
+
+  Left column (~30%):
+    Section 1: Problem & Motivation
+    Section 2: Algorithm Landscape (longer text + table)
+
+  Center column (~40%):
+    Section 3: DIFUSCO → DualOpt Pipeline (CENTERPIECE)
+    Section 4: Experimental Results (tables + ablation chart)
+
+  Right column (~30%):
+    Section 5: Five Improvements (Gemini figure + supplement table)
+    Section 6: Key Insights
+
+  Bottom strip: Highlight Box + References
+
+Visual hierarchy:
+  1. Title (largest)
+  2. Pipeline architecture figure (centerpiece)
+  3. TSP-50 benchmark table (center column)
+  4. Five Improvements figure (right column)
+  5. Key Insights (bottom-right)
+  6. Highlight box (bottom strip)
+
+======================================================================

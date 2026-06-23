@@ -1,0 +1,11 @@
+click==6.7
+Deprecated==1.2.14
+lkh==2.0.0
+networkx==2.8.8
+numpy==1.24.4
+scipy==1.10.1
+tabulate==0.8.10
+torch @ http://download.pytorch.org/whl/cu111/torch-1.10.0%2Bcu111-cp38-cp38-linux_x86_64.whl#sha256=a5a0fa82173439a693020b418370c7b683051410dc5eedb97331ca87af478f77
+tqdm==4.66.5
+typing_extensions==4.12.2
+wrapt==1.16.0

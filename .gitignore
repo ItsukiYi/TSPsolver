@@ -1,0 +1,58 @@
+# Python virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Model checkpoints (large files)
+checkpoints/
+**/checkpoints/
+
+# TSP categorical training outputs (very large - 1GB+)
+tsp50_categorical/
+tsp100_categorical/
+tsp200_categorical/
+
+# Large downloaded archives
+*.zip
+*.rar
+*.7z
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.bbl
+*.blg
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude
+.claude/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python distributions
+*.egg-info/
+dist/
+build/
+
+# Misc large non-source files
+poster_template.pptx
