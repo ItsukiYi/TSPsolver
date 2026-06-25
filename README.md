@@ -2,26 +2,6 @@
 
 A hybrid Traveling Salesman Problem solver combining DIFUSCO (diffusion-based generation, NeurIPS 2023) and DualOpt (divide-and-conquer neural refinement, AAAI 2025) into a unified pipeline. Course project for **CS240: Algorithm Design and Analysis**, Spring 2026, ShanghaiTech University.
 
-## Overview
-
-This project reproduces two state-of-the-art neural TSP solvers and explores five original strategies to integrate their complementary strengths:
-
-- **DIFUSCO** generates global tour structure via categorical denoising diffusion over graph adjacency matrices
-- **DualOpt** provides local precision through cascaded neural reviser models trained via REINFORCE
-- **Our hybrid pipeline** replaces DualOpt's grid-based first step with DIFUSCO's diffusion construction, achieving **−1.67% vs ground truth** on TSP-50 — the best result of any method tested
-
-### Key Results
-
-| Method | TSP-50 (vs GT) | TSPLIB Mean Gap |
-|--------|---------------|-----------------|
-| Nearest Neighbor | +20.8% | 23.9% |
-| Christofides | +9.0% | 13.7% |
-| C+2opt | baseline | 4.3% |
-| DIFUSCO+2opt | +0.3% | 7.3% |
-| DualOpt | −2.1% | 2.2% (n≤100) |
-| **DIFUSCO→DualOpt (ours)** | **−1.67%** | **best on kroA100** |
-| LKH3 (ceiling) | — | 0.43% |
-
 ## Repository Structure
 
 ```
@@ -38,9 +18,9 @@ This project reproduces two state-of-the-art neural TSP solvers and explores fiv
 ├── DualOpt-main/                 # Original DualOpt codebase (AAAI 2025)
 │   └── pretrained/               #   with compatibility patches applied
 │
-├── DualOpt-improved/             # ★ Our improved DualOpt with 5 strategies
+├── DualOpt-improved/             # Our improved DualOpt with 5 strategies
 │   └── utils/
-│       ├── difusco_pipeline.py   #   #2 DIFUSCO→DualOpt pipeline (SUCCESS)
+│       ├── difusco_pipeline.py   #   #2 DIFUSCO→DualOpt pipeline
 │       ├── heatmap_guide.py      #   #1 Heatmap-guided reviser
 │       ├── adaptive_reviser.py   #   #3 Adaptive window sizing
 │       ├── freeze_reviser.py     #   #4 Fragment freezing
@@ -164,20 +144,6 @@ python clustered_benchmark.py     # Clustered delivery (50/100/200 nodes)
 python real_world_scenario.py     # 31-node campus food delivery
 ```
 
-## Engineering Contributions
-
-This project required significant engineering to bridge two independent research codebases:
-
-1. **Pure-PyTorch Sparse GNN** — Replaced `torch_sparse` (CUDA-version-locked) with `torch.scatter` operations, enabling sparse-mode training on Windows/CUDA 12.6
-2. **Lightning v2 API Migration** — Updated deprecated 1.x APIs for PyTorch 2.12 compatibility
-3. **Cython Fallback** — Automatic NumPy fallback for Cython merge extension on Windows
-4. **DualOpt Compatibility Patches** — Fixed `torch.load`, LKH paths, and imports for Windows
-5. **Cross-Codebase Pipeline Integration** — Resolved namespace collisions (`utils` package), checkpoint format incompatibility (Lightning `.ckpt` vs raw `state_dict`), data format gaps, CUDA memory coexistence, and greedy merge reliability — all essential for the hybrid pipeline
-
-## Hardware Note
-
-All experiments were conducted on a single **NVIDIA RTX 2060 (6 GB VRAM)** with Windows 11 — substantially more constrained than the original papers' 8× GPU Linux clusters. Training and inference are limited to n ≤ 1000 by VRAM. According to the original papers, both DIFUSCO and DualOpt achieve their strongest results at much larger scales (TSP-10K to TSP-100K), where classical O(n³) methods become intractable.
-
 ## References
 
 - Sun & Yang. **DIFUSCO: Graph-based Diffusion Solvers for Combinatorial Optimization.** *NeurIPS*, 2023.
@@ -185,7 +151,3 @@ All experiments were conducted on a single **NVIDIA RTX 2060 (6 GB VRAM)** with 
 - Christofides. Worst-case analysis of a new heuristic for the travelling salesman problem. Technical Report 388, GSIA, CMU, 1976.
 - Helsgaun. An Extension of the Lin-Kernighan-Helsgaun TSP Solver. Technical Report, Roskilde University, 2017.
 - Kool, van Hoof & Welling. Attention, learn to solve routing problems! *ICLR*, 2019.
-
-## License
-
-This project is for educational purposes as part of CS240 coursework. The DIFUSCO and DualOpt codebases retain their original licenses. See their respective repositories for details.
