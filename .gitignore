@@ -54,5 +54,40 @@ Thumbs.db
 dist/
 build/
 
-# Misc large non-source files
+# ---- Non-code project artifacts (reports, figures, posters, papers) ----
+
+# LaTeX and PDF reports
+*.tex
+*.pdf
+
+# Markdown docs (except README)
+*.md
+!README.md
+
+# Generated figures and images
+*.png
+*.jpg
+*.jpeg
+
+# Posters and presentations
+*.pptx
+*.ppt
+
+# Planning drafts and text notes
+background_motivation_draft.txt
+improvements_detail.txt
+improvements_for_figures.txt
+pipeline_architecture.txt
+poster_content_plan.txt
+poster_organization.txt
+poster_script.txt
+difusco_text.txt
+dualopt_text.txt
+dualopt_experiments.txt
+
+# Generated outputs
+outputs/
+
+# Misc
+Gemini_Generated_Image_*.png
 poster_template.pptx
