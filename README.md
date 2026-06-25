@@ -46,17 +46,6 @@ A hybrid Traveling Salesman Problem solver combining DIFUSCO (diffusion-based ge
 │   ├── compare_*.py              #   A/B tests for improvements #1–#5
 │   └── test_*.py                 #   Unit/smoke/integration tests
 │
-├── visualization/                # Algorithm & architecture visualization
-│   ├── visualize.py              #   Classic algorithm step-by-step
-│   ├── visualize_ml.py           #   Neural method concepts
-│   ├── visualize_difusco_compare.py
-│   ├── visualize_dualopt.py
-│   └── arch_diagrams.py          #   Architecture diagram generation
-│
-├── analysis/                     # Calibration & analysis
-│   ├── calibration_study.py      #   DIFUSCO heatmap calibration
-│   └── pareto_frontier.py        #   Speed-quality Pareto frontier
-│
 └── scenarios/                    # Real-world delivery scenarios
     ├── city_delivery_scenario.py #   500-node city-wide delivery
     ├── clustered_benchmark.py    #   Clustered delivery (50/100/200)
