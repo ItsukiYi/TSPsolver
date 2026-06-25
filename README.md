@@ -31,29 +31,36 @@ A hybrid Traveling Salesman Problem solver combining DIFUSCO (diffusion-based ge
 │   └── tsplib/                   # 8 TSPLIB benchmark instances
 │
 ├── main.py                       # CLI entry point (demo/experiment/difusco modes)
-├── train_difusco.py              # Single-GPU DIFUSCO training script
-├── generate_training_data.py     # C+2opt label generation for DIFUSCO
-├── evaluate_tsplib.py            # Unified TSPLIB benchmark
-├── final_comparison.py           # Full method comparison on TSP-50
 │
-├── run_ablation.py               # DIFUSCO ablation: steps × 2-opt
-├── run_dualopt.py                # DualOpt evaluation
-├── run_scalability.py            # Scalability benchmark (n=100–1000)
-├── run_lkh_baseline.py           # LKH3 gold-standard baseline
+├── training/                     # Training & data generation
+│   ├── train_difusco.py          #   Single-GPU DIFUSCO training
+│   └── generate_training_data.py #   C+2opt label generation
 │
-├── compare_*.py                  # A/B tests for improvements #1–#5
-├── test_*.py                     # Unit/smoke/integration tests
+├── evaluation/                   # Benchmarks & improvement tests
+│   ├── evaluate_tsplib.py        #   Unified TSPLIB benchmark
+│   ├── final_comparison.py       #   Full method comparison on TSP-50
+│   ├── run_ablation.py           #   DIFUSCO ablation: steps × 2-opt
+│   ├── run_dualopt.py            #   DualOpt evaluation
+│   ├── run_scalability.py        #   Scalability benchmark (n=100–1000)
+│   ├── run_lkh_baseline.py       #   LKH3 gold-standard baseline
+│   ├── compare_*.py              #   A/B tests for improvements #1–#5
+│   └── test_*.py                 #   Unit/smoke/integration tests
 │
-├── visualize.py                  # Classic algorithm step-by-step visualization
-├── visualize_ml.py               # Neural method concept visualization
-├── calibration_study.py          # DIFUSCO heatmap calibration analysis
-├── pareto_frontier.py            # Speed-quality Pareto frontier
+├── visualization/                # Algorithm & architecture visualization
+│   ├── visualize.py              #   Classic algorithm step-by-step
+│   ├── visualize_ml.py           #   Neural method concepts
+│   ├── visualize_difusco_compare.py
+│   ├── visualize_dualopt.py
+│   └── arch_diagrams.py          #   Architecture diagram generation
 │
-├── city_delivery_scenario.py     # Real-world city delivery (500 nodes)
-├── clustered_benchmark.py        # Clustered delivery benchmark
-├── real_world_scenario.py        # Campus food delivery (31 nodes)
+├── analysis/                     # Calibration & analysis
+│   ├── calibration_study.py      #   DIFUSCO heatmap calibration
+│   └── pareto_frontier.py        #   Speed-quality Pareto frontier
 │
-└── arch_diagrams.py              # Architecture diagram generation
+└── scenarios/                    # Real-world delivery scenarios
+    ├── city_delivery_scenario.py #   500-node city-wide delivery
+    ├── clustered_benchmark.py    #   Clustered delivery (50/100/200)
+    └── real_world_scenario.py    #   31-node campus food delivery
 ```
 
 ## Setup
@@ -84,8 +91,8 @@ pip install torch torch-geometric pytorch-lightning networkx scipy numpy tsplib9
 
 ### Download DIFUSCO Checkpoints
 
-DIFUSCO pretrained models are not included in this repo. You can either:
-- Train from scratch: `python train_difusco.py --problem tsp50`
+DIFUSCO pretrained models are not included. You can either:
+- Train from scratch: `python training/train_difusco.py --problem tsp50`
 - Download official checkpoints from the [DIFUSCO repository](https://github.com/Edward-Sun/DIFUSCO)
 
 DualOpt pretrained revisers are included in `DualOpt-main/pretrained/`.
@@ -112,36 +119,36 @@ python main.py --mode generate-data --num-samples 1000
 
 ```bash
 # DIFUSCO → DualOpt pipeline on TSP-50 test set
-python compare_pipeline.py
+python evaluation/compare_pipeline.py
 
 # Cross-scale pipeline tests
-python test_tsp100_pipeline.py
-python test_tsp200_v2.py
-python test_tsp500_pipeline.py
+python evaluation/test_tsp100_pipeline.py
+python evaluation/test_tsp200_v2.py
+python evaluation/test_tsp500_pipeline.py
 ```
 
 ### Evaluate Improvements
 
 ```bash
-python compare_improvements.py    # #1 Heatmap-guided vs original
-python compare_adaptive.py        # #3 Adaptive window sizing
-python compare_freeze.py          # #4 Fragment freezing
-python compare_destroy_repair.py  # #5 Destroy-and-repair
+python evaluation/compare_improvements.py    # #1 Heatmap-guided vs original
+python evaluation/compare_adaptive.py        # #3 Adaptive window sizing
+python evaluation/compare_freeze.py          # #4 Fragment freezing
+python evaluation/compare_destroy_repair.py  # #5 Destroy-and-repair
 ```
 
 ### TSPLIB Benchmark
 
 ```bash
-python evaluate_tsplib.py         # Classic + DIFUSCO + DualOpt on all 8 instances
-python run_lkh_baseline.py        # LKH3 gold standard baseline
+python evaluation/evaluate_tsplib.py         # Classic + DIFUSCO + DualOpt on all 8 instances
+python evaluation/run_lkh_baseline.py        # LKH3 gold standard baseline
 ```
 
 ### Real-World Scenarios
 
 ```bash
-python city_delivery_scenario.py  # 500-node city-wide delivery
-python clustered_benchmark.py     # Clustered delivery (50/100/200 nodes)
-python real_world_scenario.py     # 31-node campus food delivery
+python scenarios/city_delivery_scenario.py  # 500-node city-wide delivery
+python scenarios/clustered_benchmark.py     # Clustered delivery (50/100/200 nodes)
+python scenarios/real_world_scenario.py     # 31-node campus food delivery
 ```
 
 ## References
